@@ -2,6 +2,9 @@
 
 Esta es una aplicación simple que te permite generar y clasificar imágenes utilizando un modelo de inteligencia artificial. La aplicación tiene tres botones principales y una funcionalidad adicional con la barra lateral:
 
+## (Actualizacion)
+
+- Pipelines CI/CD para Azure, GCP, AWS y respuesta pregunta 4 en **Explicaciones.pdf**
 ## Funcionalidades Principales
 
 1. **Generar Imagen:** Este botón genera una imagen basada en el texto que ingresas en el campo de entrada.
