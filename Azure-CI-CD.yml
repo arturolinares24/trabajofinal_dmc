@@ -1,0 +1,80 @@
+trigger:
+  branches:
+    include:
+      - main # Se ejecuta el pipeline cuando hay cambios en la rama "main"
+
+pool:
+  vmImage: 'ubuntu-latest' # Se utiliza una imagen de VM de Ubuntu
+
+variables:
+  IMAGE_TAG: 'latest'  # Etiqueta de la imagen Docker
+  RESOURCE_GROUP: 'prueba'  # Grupo de recursos de Azure
+  ACR_NAME: 'testcontainerdmc' # Nombre del Azure Container Registry (ACR)
+  REPOSITORY_NAME: 'avance-dmc'  # Nombre del repositorio Docker en ACR
+  AZURE_SUBSCRIPTION_ID: 'fef31fac-221c-45d2-bf5a-d03f3f53b1ab'  # ID de la suscripción de Azure
+  AZURE_SERVICE_CONNECTION: 'azure-mlops-connection'  # Conexión de servicio de Azure
+  ACR_DOCKER_SERVICE_CONNECTION: 'azure-cicd' # Conexión de servicio Docker para ACR
+
+
+steps:
+  # Paso 1: Iniciar sesión en Azure
+  - task: AzureCLI@2
+    displayName: 'Login to Azure'  # Mostrar nombre de la tarea
+    inputs:
+      azureSubscription: '$(AZURE_SERVICE_CONNECTION)'  # Usar la conexión de servicio de Azure
+      scriptType: 'bash'  # Tipo de script: Bash
+      scriptLocation: 'inlineScript'  # Ubicación del script: inline
+      inlineScript: |
+        az account set --subscription '$(AZURE_SUBSCRIPTION_ID)'  # Establecer la suscripción de Azure
+
+  # Paso 2: Crear Azure Container Registry si no existe
+  - task: AzureCLI@2
+    displayName: 'Create Azure Container Registry'  # Mostrar nombre de la tarea
+    inputs:
+      azureSubscription: '$(AZURE_SERVICE_CONNECTION)'  # Usar la conexión de servicio de Azure
+      scriptType: 'bash'  # Tipo de script: Bash
+      scriptLocation: 'inlineScript'  # Ubicación del script: inline
+      inlineScript: |
+        # Mostrar ACR si existe, de lo contrario, crearlo
+        az acr show --name $(ACR_NAME) --resource-group $(RESOURCE_GROUP) || \
+        az acr create --resource-group $(RESOURCE_GROUP) --name $(ACR_NAME) --sku Basic
+
+  # Paso 3: Construir la imagen Docker
+  - task: Docker@2
+    displayName: 'Build Docker Image'  # Mostrar nombre de la tarea
+    inputs:
+      containerRegistry: '$(ACR_DOCKER_SERVICE_CONNECTION)'  # Conexión de servicio Docker para ACR
+      repository: '$(REPOSITORY_NAME)'  # Nombre del repositorio Docker
+      dockerfile: 'ml-project/Dockerfile'  # Ubicación del Dockerfile
+      context: 'ml-project'  # Contexto de construcción de Docker
+      tags: '$(IMAGE_TAG)'  # Etiquetas de la imagen Docker
+
+  # Paso 4: Empujar la imagen Docker a ACR
+  - task: Docker@2
+    displayName: 'Push Docker Image to ACR'  # Mostrar nombre de la tarea
+    inputs:
+      containerRegistry: '$(ACR_DOCKER_SERVICE_CONNECTION)'  # Conexión de servicio Docker para ACR
+      repository: '$(REPOSITORY_NAME)'  # Nombre del repositorio Docker
+      command: 'push'  # Comando Docker: push
+      tags: '$(IMAGE_TAG)'  # Etiquetas de la imagen Docker
+
+  # Paso 5: Desplegar en Azure Container Instances
+  - task: AzureCLI@2
+    displayName: 'Deploy to Azure Container Instances'  # Mostrar nombre de la tarea
+    inputs:
+      azureSubscription: '$(AZURE_SERVICE_CONNECTION)'  # Usar la conexión de servicio de Azure
+      scriptType: 'bash'  # Tipo de script: Bash
+      scriptLocation: 'inlineScript'  # Ubicación del script: inline
+      inlineScript: |
+        # Crear una instancia de contenedor en Azure
+        az container create \
+          --resource-group $(RESOURCE_GROUP) \
+          --name $(REPOSITORY_NAME)-container \
+          --image $(ACR_NAME).azurecr.io/$(REPOSITORY_NAME):$(IMAGE_TAG) \
+          --cpu 1 \
+          --memory 1 \
+          --registry-login-server $(ACR_NAME).azurecr.io \
+          --registry-username $(az acr credential show --name $(ACR_NAME) --query username -o tsv) \
+          --registry-password $(az acr credential show --name $(ACR_NAME) --query passwords[0].value -o tsv) \
+          --dns-name-label $(REPOSITORY_NAME)-dns \
+          --ports 8501  # Exponer el puerto 8501 para la aplicación

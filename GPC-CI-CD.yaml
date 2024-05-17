@@ -1,0 +1,48 @@
+options:
+  logging: CLOUD_LOGGING_ONLY  # Configura el registro para que solo se use Cloud Logging
+
+steps:
+  # Paso 0: Construir la imagen Docker desde el Dockerfile
+  - name: 'gcr.io/cloud-builders/docker'  # Utiliza el builder de Docker proporcionado por Google Cloud
+    args: ['build', '-t', '$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPOSITORY_NAME/$_IMAGE_NAME:latest', '.']  # Construir la imagen Docker y etiquetarla como "latest"
+
+  # Paso 1: Verificar si el Repositorio de Artefactos existe y crearlo si no
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'  # Utiliza el Cloud SDK de Google
+    entrypoint: 'sh'  # Usa el shell de Linux para ejecutar comandos
+    args:
+      - '-c'  # Ejecuta los siguientes comandos en el shell
+      - |
+        # Verificar si el repositorio de artefactos existe
+        if ! gcloud artifacts repositories describe $_REPOSITORY_NAME --location=$_REGION --format='value(name)'; then
+          echo "Repository $_REPOSITORY_NAME does not exist. Creating repository..."  # Mensaje si no existe el repositorio
+          gcloud artifacts repositories create $_REPOSITORY_NAME --repository-format=docker --location=$_REGION  # Crear el repositorio de artefactos
+          echo "Repository $_REPOSITORY_NAME created."  # Mensaje después de crear el repositorio
+        else
+          echo "Repository $_REPOSITORY_NAME already exists."  # Mensaje si el repositorio ya existe
+        fi
+      # Verificar si el repositorio de artefactos existe
+
+  # Paso 2: Subir la imagen a Google Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'  # Utiliza el builder de Docker proporcionado por Google Cloud
+    args: ['push', '$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPOSITORY_NAME/$_IMAGE_NAME:latest']  # Subir la imagen etiquetada como "latest" al repositorio de artefactos
+
+  # Paso 3: Desplegar la imagen en Google Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'  # Utiliza el Cloud SDK de Google
+    entrypoint: 'gcloud'  # Usa el comando gcloud
+    args:
+      - 'run'  # Servicio de Cloud Run
+      - 'deploy'  # Comando de despliegue
+      - '$_CLOUD_RUN_SERVICE'  # Nombre del servicio de Cloud Run
+      - '--port=8501'  # Puerto en el que se ejecutará el servicio
+      - '--image=$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPOSITORY_NAME/$_IMAGE_NAME:latest'  # Imagen a desplegar
+      - '--region=$_REGION'  # Región donde se desplegará el servicio
+      - '--platform=managed'  # Plataforma administrada
+      - '--allow-unauthenticated'  # Permitir acceso no autenticado
+      - '--memory=2Gi'  # Asignar 2 GiB de memoria
+
+substitutions:
+  _PROJECT_ID: 'quick-wall-419101'  # ID del proyecto de Google Cloud
+  _REGION: 'us-central1'  # Región donde se despliega el servicio y repositorio
+  _REPOSITORY_NAME: 'avance_trabajo_dmc'  # Nombre del repositorio de artefactos
+  _IMAGE_NAME: 'avance_trabajo_dmc_image'  # Nombre de la imagen Docker
+  _CLOUD_RUN_SERVICE: 'avance_trabajo_dmc_service'  # Nombre del servicio de Cloud Run
